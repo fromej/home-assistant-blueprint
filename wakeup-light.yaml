@@ -98,13 +98,13 @@ action:
           data:
             brightness_step_pct: 1
             kelvin: >-
-              {% set brightness = state_attr(!input light_entity, 'brightness')|default(0) %}
+              {% set brightness = state_attr(input.light_entity, 'brightness')|default(0) %}
               {% set brightness_pct = (brightness|float / 255 * 100)|round(1) %}
               {% set kelvin = ((brightness_pct - 10) / (100 - 10) * (4000 - 2202) + 2202)|round %}
               {{ kelvin|int }}
         - delay:
             seconds: >-
-              {% set total_seconds = !input transition_time * 60 %}
+              {% set total_seconds = input.transition_time * 60 %}
               {% set delay_per_step = (total_seconds / 90)|round %}
               {{ delay_per_step }}
       while:
