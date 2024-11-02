@@ -109,9 +109,9 @@ action:
           entity_id: !input light_entity
           attribute: brightness
           below: 253
-        - condition: entity
+        - condition: device
           type: is_on
-          device_id: {{ device_id(!input light_entity)}}
+          device_id: {% device_id(!input light_entity)%}
           entity_id: !input light_entity
           domain: light
 mode: single
