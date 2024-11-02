@@ -77,7 +77,7 @@ variables:
   # Make input my_input available as a script level variable
   light_entity: !input light_entity
   transition_time: !input transition_time
-  weekdays: !input weekdays
+  weekdays: "{{ !input weekdays | list }}"
 trigger:
   - platform: time
     at: !input wake_time
