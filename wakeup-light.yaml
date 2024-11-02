@@ -77,13 +77,14 @@ variables:
   # Make input my_input available as a script level variable
   light_entity: !input light_entity
   transition_time: !input transition_time
+  weekdays: !input weekdays
 trigger:
   - platform: time
     at: !input wake_time
 condition:
   - condition: template
     value_template: >-
-      {{ now().strftime('%a')|lower in input.weekdays }}
+      {{ now().strftime('%a')|lower in weekdays }}
   - condition: zone
     entity_id: !input person_entity
     zone: !input home_zone
