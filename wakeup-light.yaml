@@ -77,19 +77,23 @@ variables:
   # Make input my_input available as a script level variable
   light_entity: !input light_entity
   transition_time: !input transition_time
-  weekdays: "{{ !input weekdays | list }}"
+  weekdays: !input weekdays
 trigger:
   - platform: time
     at: !input wake_time
 condition:
-  - condition: template
-    value_template: >-
-      {% set today = now().strftime('%a')|lower %}
-      {{ weekdays is list }}
+  # - condition: template
+  #   value_template: >-
+  #     {% set today = now().strftime('%a')|lower %}
+  #     {{ weekdays | contains(today) }}
   - condition: zone
     entity_id: !input person_entity
     zone: !input home_zone
 action:
+  - service: system_log.write
+    data:
+      message: "Weekdays value: {{ weekdays }}"
+      level: info
   - action: light.turn_on
     target:
       entity_id: !input light_entity
