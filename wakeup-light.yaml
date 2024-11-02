@@ -85,7 +85,7 @@ condition:
   - condition: template
     value_template: >-
       {% set today = now().strftime('%a')|lower %}
-      {{ weekdays | contains(today )}}
+      {{ weekdays is list }}
   - condition: zone
     entity_id: !input person_entity
     zone: !input home_zone
