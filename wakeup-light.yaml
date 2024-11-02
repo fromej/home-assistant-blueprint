@@ -1,0 +1,116 @@
+blueprint:
+  name: Wake-up Light
+  description: Gradually increases brightness and color temperature of a light to simulate sunrise for waking up
+  domain: automation
+  input:
+    wake_time:
+      name: Wake-up Time
+      description: Time to start the wake-up sequence
+      selector:
+        entity:
+          domain: input_datetime
+    person_entity:
+      name: Person Entity
+      description: The person entity to check if they are home
+      selector:
+        entity:
+          domain: person
+    light_entity:
+      name: Wake-up Light
+      description: The light that will gradually brighten
+      selector:
+        entity:
+          domain: light
+    home_zone:
+      name: Home Zone
+      description: The zone entity representing home
+      selector:
+        entity:
+          domain: zone
+      default: zone.home
+    transition_time:
+      name: Transition Time
+      description: Duration of the wake-up sequence in minutes
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: minutes
+          mode: slider
+          step: 1
+    weekdays:
+      name: Active Days
+      description: Select the days when the wake-up light should be active
+      default: 
+        - mon
+        - tue
+        - wed
+        - thu
+        - fri
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Monday
+              value: mon
+            - label: Tuesday
+              value: tue
+            - label: Wednesday
+              value: wed
+            - label: Thursday
+              value: thu
+            - label: Friday
+              value: fri
+            - label: Saturday
+              value: sat
+            - label: Sunday
+              value: sun
+
+# Automation configuration
+alias: Gradual Wake-up Light
+description: Gradually brightens a light to simulate sunrise for waking up
+trigger:
+  - platform: time
+    at: !input wake_time
+condition:
+  - condition: template
+    value_template: >-
+      {{ now().strftime('%a')|lower in input.weekdays }}
+  - condition: zone
+    entity_id: !input person_entity
+    zone: !input home_zone
+action:
+  - action: light.turn_on
+    target:
+      entity_id: !input light_entity
+    data:
+      brightness_pct: 10
+      kelvin: 2000
+  - repeat:
+      sequence:
+        - action: light.turn_on
+          target:
+            entity_id: !input light_entity
+          data:
+            brightness_step_pct: 1
+            kelvin: >-
+              {% set brightness = state_attr(this.entity_id, 'brightness')|default(0) %}
+              {% set brightness_pct = (brightness|float / 255 * 100)|round(1) %}
+              {% set kelvin = ((brightness_pct - 10) / (100 - 10) * (4000 - 2202) + 2202)|round %}
+              {{ kelvin|int }}
+        - delay:
+            seconds: >-
+              {% set total_seconds = input.transition_time * 60 %}
+              {% set delay_per_step = (total_seconds / 90)|round %}
+              {{ delay_per_step }}
+      while:
+        - condition: numeric_state
+          entity_id: !input light_entity
+          attribute: brightness
+          below: 253
+        - condition: device
+          type: is_on
+          entity_id: !input light_entity
+          domain: light
+mode: single
