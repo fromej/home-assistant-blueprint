@@ -77,16 +77,28 @@ variables:
   # Make input my_input available as a script level variable
   light_entity: !input light_entity
   transition_time: !input transition_time
-  weekdays: !input weekdays
 trigger:
   - platform: time
     at: !input wake_time
 condition:
   - condition: template
     value_template: >-
-      {% set days = weekdays | from_json %}
+      {% set days = weekdays %}
       {% set today = now().strftime('%a')|lower %}
       {{ days | contains(today) }}
+  - condition: template 
+    value_template: >-
+      {% set days = weekdays %}
+      {{ days is list }}
+  - condition: template 
+    value_template: >-
+      {% set days = weekdays | from_json %}
+      {{ days is list }}
+  - condition: template 
+    value_template: >-
+      {% set days = weekdays | replace("'", '"') %}
+      {% set ndays = days | from_json %}
+      {{ days is list }}
   - condition: zone
     entity_id: !input person_entity
     zone: !input home_zone
