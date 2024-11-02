@@ -108,7 +108,7 @@ action:
               {{ kelvin|int }}
         - delay:
             seconds: >-
-              {% set total_seconds = input.transition_time * 60 %}
+              {% set total_seconds = transition_time * 60 %}
               {% set delay_per_step = (total_seconds / 90)|round %}
               {{ delay_per_step }}
       while:
