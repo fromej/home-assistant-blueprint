@@ -56,19 +56,19 @@ blueprint:
           multiple: true
           options:
             - label: Monday
-              value: mon
+              value: "mon"
             - label: Tuesday
-              value: tue
+              value: "tue"
             - label: Wednesday
-              value: wed
+              value: "wed"
             - label: Thursday
-              value: thu
+              value: "thu"
             - label: Friday
-              value: fri
+              value: "fri"
             - label: Saturday
-              value: sat
+              value: "sat"
             - label: Sunday
-              value: sun
+              value: "sun"
 
 # Automation configuration
 alias: Gradual Wake-up Light
@@ -82,10 +82,11 @@ trigger:
   - platform: time
     at: !input wake_time
 condition:
-  # - condition: template
-  #   value_template: >-
-  #     {% set today = now().strftime('%a')|lower %}
-  #     {{ weekdays | contains(today) }}
+  - condition: template
+    value_template: >-
+      {% set days = weekdays | from_json %}
+      {% set today = now().strftime('%a')|lower %}
+      {{ days | contains(today) }}
   - condition: zone
     entity_id: !input person_entity
     zone: !input home_zone
