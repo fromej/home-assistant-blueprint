@@ -73,6 +73,10 @@ blueprint:
 # Automation configuration
 alias: Gradual Wake-up Light
 description: Gradually brightens a light to simulate sunrise for waking up
+variables:
+  # Make input my_input available as a script level variable
+  light_entity: !input light_entity
+  transition_time: !input transition_time
 trigger:
   - platform: time
     at: !input wake_time
@@ -98,7 +102,7 @@ action:
           data:
             brightness_step_pct: 1
             kelvin: >-
-              {% set brightness = state_attr(input.light_entity, 'brightness')|default(0) %}
+              {% set brightness = state_attr(light_entity, 'brightness')|default(0) %}
               {% set brightness_pct = (brightness|float / 255 * 100)|round(1) %}
               {% set kelvin = ((brightness_pct - 10) / (100 - 10) * (4000 - 2202) + 2202)|round %}
               {{ kelvin|int }}
