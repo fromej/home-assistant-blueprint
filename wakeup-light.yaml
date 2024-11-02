@@ -84,7 +84,8 @@ trigger:
 condition:
   - condition: template
     value_template: >-
-      {{ now().strftime('%a')|lower in weekdays }}
+      {% set today = now().strftime('%a')|lower %}
+      {{ today in weekdays }}
   - condition: zone
     entity_id: !input person_entity
     zone: !input home_zone
