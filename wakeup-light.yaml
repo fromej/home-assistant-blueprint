@@ -42,7 +42,7 @@ blueprint:
           unit_of_measurement: minutes
           mode: slider
           step: 1
-    weekdays:
+    weekday:
       name: Active Days
       description: Select the days when the wake-up light should be active
       default: 
@@ -55,20 +55,20 @@ blueprint:
         select:
           multiple: true
           options:
-            - Monday
-              # value: "mon"
-            - Tuesday
-              # value: "tue"
-            - Wednesday
-              # value: "wed"
-            - Thursday
-              # value: "thu"
-            - Friday
-              # value: "fri"
-            - Saturday
-              # value: "sat"
-            - Sunday
-              # value: "sun"
+            - label: Monday
+              value: mon
+            - label: Tuesday
+              value: tue
+            - label: Wednesday
+              value: wed
+            - label: Thursday
+              value: thu
+            - label: Friday
+              value: fri
+            - label: Saturday
+              value: sat
+            - label: Sunday
+              value: sun
 
 # Automation configuration
 alias: Gradual Wake-up Light
@@ -81,38 +81,8 @@ trigger:
   - platform: time
     at: !input wake_time
 condition:
-  - condition: template
-    value_template: >-
-      {% set days = weekdays %}
-      {% set today = now().strftime('%a')|lower %}
-      {{ days | contains(today) }}
-  - condition: template 
-    value_template: >-
-      {% set days = weekdays %}
-      {{ days is list }}
-  - condition: template 
-    value_template: >-
-      {% set days = weekdays | from_json %}
-      {{ days is list }}
-  - condition: template 
-    value_template: >-
-      {% set days = weekdays | replace("'", '"') %}
-      {% set ndays = days | from_json %}
-      {{ days is list }}
-  - condition: template
-    value_template: >-
-      {% set weekdays = {
-        'Monday': 1,
-        'Tuesday': 2,
-        'Wednesday': 3,
-        'Thursday': 4,
-        'Friday': 5,
-        'Saturday': 6,
-        'Sunday': 7
-      } %}
-      {% set today = now().isoweekday() %}
-      {% set selected_days = weekdays | selectattr('key', 'in', days_of_week) | map(attribute='value') | list %}
-      {{ today in selected_days }}
+  - condition: time
+    weekdas: !input weekday
   - condition: zone
     entity_id: !input person_entity
     zone: !input home_zone
