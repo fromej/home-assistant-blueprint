@@ -82,7 +82,7 @@ trigger:
     at: !input wake_time
 condition:
   - condition: time
-    weekdas: !input weekday
+    weekday: !input weekday
   - condition: zone
     entity_id: !input person_entity
     zone: !input home_zone
