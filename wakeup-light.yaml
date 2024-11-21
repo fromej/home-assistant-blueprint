@@ -92,7 +92,7 @@ action:
       entity_id: !input light_entity
     data:
       brightness_pct: 10
-      kelvin: 2000
+      kelvin: 2202
   - repeat:
       sequence:
         - action: light.turn_on
