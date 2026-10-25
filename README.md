@@ -1,19 +1,41 @@
-# Home Assistant Wake-up Light Blueprint
+# Home Assistant Blueprints
+
+A collection of Home Assistant blueprints. Each blueprint is a single YAML file
+under `blueprints/<domain>/` and can be imported on its own.
+
+| Blueprint | Domain | Description |
+| --- | --- | --- |
+| [Wake-up Light](#wake-up-light) | automation | Simulates a sunrise by gradually brightening and cooling lights |
+
+## Importing
+
+Click the import badge of a blueprint, or go to
+**Settings → Automations & Scenes → Blueprints → Import Blueprint** and paste
+the blueprint's URL.
+
+## Adding a blueprint
+
+1. Create `blueprints/<domain>/<name>.yaml` (`<domain>` is `automation` or `script`).
+2. Set `source_url` in the `blueprint:` header to
+   `https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/<domain>/<name>.yaml`.
+3. Add a row to the table above and a section below with an import badge.
+
+---
+
+## Wake-up Light
 
 Gradually brightens one or more lights and warms them up to a cooler colour
 temperature to simulate a sunrise.
 
-[![Open your Home Assistant instance and show the blueprint import dialog with this blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffromej%2Fhome-assistant-blueprint%2Fblob%2Fmain%2Fwakeup-light.yaml)
-
-Or import manually: **Settings → Automations & Scenes → Blueprints → Import Blueprint** and paste:
+[![Open your Home Assistant instance and show the blueprint import dialog with this blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffromej%2Fhome-assistant-blueprint%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fwakeup-light.yaml)
 
 ```
-https://github.com/fromej/home-assistant-blueprint/blob/main/wakeup-light.yaml
+https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/wakeup-light.yaml
 ```
 
 Requires Home Assistant 2024.10 or newer.
 
-## Inputs
+### Inputs
 
 | Input | Description | Default |
 | --- | --- | --- |
