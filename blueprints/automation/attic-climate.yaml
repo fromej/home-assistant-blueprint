@@ -1,0 +1,449 @@
+blueprint:
+  name: Attic Climate Control
+  author: fromej
+  description: >-
+    Keeps an attic cool using motorised windows and sun screens.
+
+
+    Windows open when the attic is warmer than the comfort temperature and the
+    outside air is cooler, and close again once the attic has cooled down,
+    when it gets warmer outside than inside, when it gets too cold outside, or
+    when it rains or the wind is too strong.
+
+
+    Screens close when the sun shines on them and the attic (or the outside)
+    is warm, and open when the sun is gone or it has cooled down. In winter
+    they stay open so the sun can warm the attic. In strong wind they open to
+    protect them.
+
+
+    Only covers that are not already in the desired state receive a command.
+  domain: automation
+  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/attic-climate.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    attic_temperature:
+      name: Attic Temperature
+      description: Temperature sensor in the attic
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+    outdoor_temperature:
+      name: Outdoor Temperature
+      description: Outdoor temperature sensor, or a weather entity
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+            - domain: weather
+    windows:
+      name: Window(s)
+      description: Motorised attic windows. Leave empty to only control the screens.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: cover
+    screens:
+      name: Screen(s)
+      description: >-
+        Sun screens. "Closed" means the screen is down and blocks the sun.
+        Leave empty to only control the windows.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: cover
+    enabled_helper:
+      name: Enable Switch
+      description: >-
+        Optional input_boolean. The automation only acts while it is on, so
+        turn it off to control the windows and screens manually.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+    window_settings:
+      name: Window settings
+      icon: mdi:window-open-variant
+      collapsed: true
+      input:
+        comfort_temperature:
+          name: Comfort Temperature
+          description: Windows open when the attic is warmer than this and it is cooler outside
+          default: 24
+          selector:
+            number:
+              min: 15
+              max: 35
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+        hysteresis:
+          name: Hysteresis
+          description: >-
+            How far the attic must cool below a threshold before windows close
+            or screens open again. Prevents constant opening and closing.
+          default: 1
+          selector:
+            number:
+              min: 0.5
+              max: 5
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+        outdoor_delta:
+          name: Minimum Temperature Difference
+          description: How much cooler it must be outside than in the attic before windows open
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+        min_outdoor_temperature:
+          name: Minimum Outdoor Temperature
+          description: Windows stay closed when it is colder than this outside
+          default: 12
+          selector:
+            number:
+              min: -10
+              max: 25
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+        window_open_position:
+          name: Window Open Position
+          description: >-
+            Position to open the windows to. 100 fully opens them; lower values
+            need windows that support setting a position.
+          default: 100
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+    screen_settings:
+      name: Screen settings
+      icon: mdi:blinds-horizontal
+      collapsed: true
+      input:
+        screen_temperature:
+          name: Screen Attic Temperature
+          description: Screens close when the sun shines on them and the attic is warmer than this
+          default: 22
+          selector:
+            number:
+              min: 15
+              max: 35
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+        screen_outdoor_temperature:
+          name: Screen Outdoor Temperature
+          description: >-
+            Screens also close when the sun shines on them and it is warmer
+            than this outside, so the attic does not heat up in the first place
+          default: 25
+          selector:
+            number:
+              min: 10
+              max: 40
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+        min_sun_elevation:
+          name: Minimum Sun Elevation
+          description: The sun counts as shining on the screens above this elevation
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              unit_of_measurement: °
+              mode: slider
+        sun_azimuth_start:
+          name: Sun Azimuth Start
+          description: >-
+            Start of the sun direction that hits the screens (0 = north,
+            90 = east, 180 = south, 270 = west). Use 0 to 360 for any direction.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 360
+              step: 1
+              unit_of_measurement: °
+              mode: slider
+        sun_azimuth_end:
+          name: Sun Azimuth End
+          description: End of the sun direction that hits the screens. May be lower than the start to wrap past north.
+          default: 360
+          selector:
+            number:
+              min: 0
+              max: 360
+              step: 1
+              unit_of_measurement: °
+              mode: slider
+        illuminance_sensor:
+          name: Illuminance Sensor
+          description: Optional. When set, screens only close when it is brighter than the threshold below.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: illuminance
+        illuminance_threshold:
+          name: Illuminance Threshold
+          default: 20000
+          selector:
+            number:
+              min: 0
+              max: 100000
+              step: 500
+              unit_of_measurement: lx
+              mode: box
+    weather_protection:
+      name: Weather protection
+      icon: mdi:weather-pouring
+      collapsed: true
+      input:
+        rain_sensor:
+          name: Rain Sensor
+          description: Optional binary sensor. Windows close while it is on.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: binary_sensor
+        wind_speed_sensor:
+          name: Wind Speed Sensor
+          description: Optional wind speed sensor
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: wind_speed
+        window_max_wind:
+          name: Maximum Wind Speed for Windows
+          description: Windows close at or above this wind speed (in the unit of the wind sensor)
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 200
+              step: 1
+              mode: box
+        screen_max_wind:
+          name: Maximum Wind Speed for Screens
+          description: Screens open (retract) at or above this wind speed (in the unit of the wind sensor)
+          default: 40
+          selector:
+            number:
+              min: 0
+              max: 200
+              step: 1
+              mode: box
+
+mode: single
+max_exceeded: silent
+
+trigger_variables:
+  rain_trigger_sensor: !input rain_sensor
+  wind_trigger_sensor: !input wind_speed_sensor
+  window_trigger_wind: !input window_max_wind
+  screen_trigger_wind: !input screen_max_wind
+
+triggers:
+  - trigger: state
+    entity_id: !input attic_temperature
+    to: ~
+  - trigger: state
+    entity_id: !input outdoor_temperature
+  # Catches sun movement and the optional sensors
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: homeassistant
+    event: start
+  # React to rain and wind immediately
+  - trigger: template
+    value_template: "{{ rain_trigger_sensor != '' and is_state(rain_trigger_sensor, 'on') }}"
+  - trigger: template
+    value_template: >-
+      {{ wind_trigger_sensor != ''
+         and states(wind_trigger_sensor) | float(0) >= [window_trigger_wind, screen_trigger_wind] | min }}
+
+variables:
+  attic_sensor: !input attic_temperature
+  outdoor_entity: !input outdoor_temperature
+  windows: !input windows
+  screens: !input screens
+  enabled_helper: !input enabled_helper
+  comfort_temperature: !input comfort_temperature
+  hysteresis: !input hysteresis
+  outdoor_delta: !input outdoor_delta
+  min_outdoor_temperature: !input min_outdoor_temperature
+  window_open_position: !input window_open_position
+  screen_temperature: !input screen_temperature
+  screen_outdoor_temperature: !input screen_outdoor_temperature
+  min_sun_elevation: !input min_sun_elevation
+  sun_azimuth_start: !input sun_azimuth_start
+  sun_azimuth_end: !input sun_azimuth_end
+  illuminance_sensor: !input illuminance_sensor
+  illuminance_threshold: !input illuminance_threshold
+  rain_sensor: !input rain_sensor
+  wind_speed_sensor: !input wind_speed_sensor
+  window_max_wind: !input window_max_wind
+  screen_max_wind: !input screen_max_wind
+  window_list: "{{ [windows] if windows is string else windows }}"
+  screen_list: "{{ [screens] if screens is string else screens }}"
+  attic_temp: "{{ states(attic_sensor) | float(none) }}"
+  outdoor_temp: >-
+    {%- if outdoor_entity.startswith('weather.') %}
+      {{- state_attr(outdoor_entity, 'temperature') | float(none) }}
+    {%- else %}
+      {{- states(outdoor_entity) | float(none) }}
+    {%- endif %}
+  raining: "{{ rain_sensor != '' and is_state(rain_sensor, 'on') }}"
+  wind_speed: "{{ states(wind_speed_sensor) | float(0) if wind_speed_sensor != '' else 0 }}"
+  sun_on_screens: >-
+    {% set elevation = state_attr('sun.sun', 'elevation') | float(-90) %}
+    {% set azimuth = state_attr('sun.sun', 'azimuth') | float(0) %}
+    {% if sun_azimuth_start <= sun_azimuth_end %}
+      {% set facing = sun_azimuth_start <= azimuth <= sun_azimuth_end %}
+    {% else %}
+      {% set facing = azimuth >= sun_azimuth_start or azimuth <= sun_azimuth_end %}
+    {% endif %}
+    {{ elevation >= min_sun_elevation and facing }}
+  bright: >-
+    {{ illuminance_sensor == ''
+       or states(illuminance_sensor) | float(0) >= illuminance_threshold }}
+  # open, close or none (leave as is, e.g. in between the hysteresis thresholds)
+  window_action: >-
+    {% if attic_temp is not number %}
+      none
+    {% elif raining or (wind_speed_sensor != '' and wind_speed >= window_max_wind) %}
+      close
+    {% elif outdoor_temp is not number %}
+      none
+    {% elif attic_temp <= comfort_temperature - hysteresis
+         or outdoor_temp >= attic_temp
+         or outdoor_temp < min_outdoor_temperature %}
+      close
+    {% elif attic_temp >= comfort_temperature
+         and outdoor_temp <= attic_temp - outdoor_delta %}
+      open
+    {% else %}
+      none
+    {% endif %}
+  screen_action: >-
+    {% set warm_outside = outdoor_temp is number and outdoor_temp >= screen_outdoor_temperature %}
+    {% set cool_outside = outdoor_temp is not number
+         or outdoor_temp < screen_outdoor_temperature - hysteresis %}
+    {% if attic_temp is not number %}
+      none
+    {% elif wind_speed_sensor != '' and wind_speed >= screen_max_wind %}
+      open
+    {% elif sun_on_screens and bright and (attic_temp >= screen_temperature or warm_outside) %}
+      close
+    {% elif not sun_on_screens or (attic_temp <= screen_temperature - hysteresis and cool_outside) %}
+      open
+    {% else %}
+      none
+    {% endif %}
+
+conditions:
+  - condition: template
+    value_template: "{{ enabled_helper == '' or is_state(enabled_helper, 'on') }}"
+  - condition: template
+    value_template: "{{ attic_temp is number }}"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ window_action | trim == 'close' }}"
+        sequence:
+          - variables:
+              targets: >-
+                {{ expand(window_list) | rejectattr('state', 'in', ['closed', 'closing'])
+                   | map(attribute='entity_id') | list }}
+          - if:
+              - condition: template
+                value_template: "{{ targets | count > 0 }}"
+            then:
+              - action: cover.close_cover
+                target:
+                  entity_id: "{{ targets }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ window_action | trim == 'open' }}"
+        sequence:
+          # Windows that are already open are left alone, also at a manual position
+          - variables:
+              targets: >-
+                {{ expand(window_list) | rejectattr('state', 'in', ['open', 'opening'])
+                   | map(attribute='entity_id') | list }}
+          - if:
+              - condition: template
+                value_template: "{{ targets | count > 0 }}"
+            then:
+              - if:
+                  - condition: template
+                    value_template: "{{ window_open_position < 100 }}"
+                then:
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: "{{ targets }}"
+                    data:
+                      position: "{{ window_open_position }}"
+                else:
+                  - action: cover.open_cover
+                    target:
+                      entity_id: "{{ targets }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ screen_action | trim == 'close' }}"
+        sequence:
+          - variables:
+              targets: >-
+                {{ expand(screen_list) | rejectattr('state', 'in', ['closed', 'closing'])
+                   | map(attribute='entity_id') | list }}
+          - if:
+              - condition: template
+                value_template: "{{ targets | count > 0 }}"
+            then:
+              - action: cover.close_cover
+                target:
+                  entity_id: "{{ targets }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ screen_action | trim == 'open' }}"
+        sequence:
+          - variables:
+              targets: >-
+                {{ expand(screen_list) | rejectattr('state', 'in', ['open', 'opening'])
+                   | map(attribute='entity_id') | list }}
+          - if:
+              - condition: template
+                value_template: "{{ targets | count > 0 }}"
+            then:
+              - action: cover.open_cover
+                target:
+                  entity_id: "{{ targets }}"

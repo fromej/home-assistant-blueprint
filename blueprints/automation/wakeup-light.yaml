@@ -10,7 +10,7 @@ blueprint:
     selected days, and optionally only when someone is in the chosen zone.
     Turning the light(s) off during the sequence stops it.
   domain: automation
-  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/wakeup-light.yaml
+  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/wakeup-light.yaml
   homeassistant:
     min_version: 2024.10.0
   input:
