@@ -7,6 +7,7 @@ under `blueprints/<domain>/` and can be imported on its own.
 | --- | --- | --- |
 | [Wake-up Light](#wake-up-light) | automation | Simulates a sunrise by gradually brightening and cooling lights |
 | [Attic Climate Control](#attic-climate-control) | automation | Keeps an attic cool with motorised windows and sun screens |
+| [Sun Screen Control](#sun-screen-control) | automation | Keeps a room cool by lowering sun screens when the sun is on them |
 
 ## Importing
 
@@ -116,3 +117,54 @@ different position stays there. Use the optional enable switch
 | Rain Sensor | Optional binary sensor; windows close while on | none |
 | Wind Speed Sensor | Optional wind speed sensor | none |
 | Maximum Wind Speed for Windows / Screens | Limits in the unit of the wind sensor | 50 / 40 |
+
+---
+
+## Sun Screen Control
+
+Keeps a room cool by closing sun screens when the sun shines on them and the
+room (or the outside) is warm. A simpler, screens-only version of the attic
+blueprint, for any floor or room.
+
+[![Open your Home Assistant instance and show the blueprint import dialog with this blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Ffromej%2Fhome-assistant-blueprint%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fsun-screens.yaml)
+
+```
+https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/sun-screens.yaml
+```
+
+Requires Home Assistant 2024.10 or newer.
+
+### How it works
+
+"Closed" means down, blocking the sun.
+
+| Situation | Screens |
+| --- | --- |
+| Wind at/above the limit | Open (retract) |
+| Sun on the screens (elevation and direction), bright enough, and room or outside warm | Close |
+| Sun not on the screens, or room and outside cooled down by the hysteresis | Open |
+| Anything in between | Leave as is |
+
+The automation checks every 5 minutes, whenever the room temperature changes,
+and immediately when the wind picks up. Screens that are already in the desired
+state are not touched. Screens on different sides of the house see the sun at
+different times, so create one automation per side, each with its own sun
+azimuth range (for example 90–200 for east to south, 200–300 for west). Use the
+optional enable switch (`input_boolean`) to pause the automation.
+
+### Inputs
+
+| Input | Description | Default |
+| --- | --- | --- |
+| Room Temperature | Temperature sensor in the room behind the screens | – |
+| Screen(s) | Sun screens to control | – |
+| Outdoor Temperature | Optional outdoor sensor or weather entity | none |
+| Enable Switch | Optional `input_boolean`; the automation only acts while it is on | none |
+| Room Temperature Threshold | Screens close above this room temperature when the sun is on them | 22 °C |
+| Outdoor Temperature Threshold | Screens also close above this outdoor temperature when the sun is on them | 25 °C |
+| Hysteresis | Cool-down needed before the screens open again | 1 °C |
+| Minimum Sun Elevation | Sun counts as shining above this elevation | 10° |
+| Sun Azimuth Start / End | Sun direction that hits the screens (180 = south) | 0° / 360° |
+| Illuminance Sensor / Threshold | Optional; screens only close when brighter than this | none / 20000 lx |
+| Wind Speed Sensor | Optional wind speed sensor | none |
+| Maximum Wind Speed | Screens retract at or above this, in the unit of the wind sensor | 40 |
