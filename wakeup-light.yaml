@@ -1,51 +1,38 @@
 blueprint:
   name: Wake-up Light
-  description: Gradually increases brightness and color temperature of a light to simulate sunrise for waking up
+  author: fromej
+  description: >-
+    Gradually increases the brightness and color temperature of one or more
+    lights to simulate a sunrise for waking up.
+
+
+    The sequence starts at the time set in the selected time helper, on the
+    selected days, and optionally only when someone is in the chosen zone.
+    Turning the light(s) off during the sequence stops it.
   domain: automation
+  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/wakeup-light.yaml
+  homeassistant:
+    min_version: 2024.10.0
   input:
     wake_time:
       name: Wake-up Time
-      description: Time helper to start the wake-up sequence
+      description: Time helper (input_datetime with a time) that starts the wake-up sequence
       selector:
         entity:
-          domain: input_datetime
+          filter:
+            - domain: input_datetime
     light_entity:
-      name: Wake-up Light
-      description: The light that will gradually brighten
+      name: Wake-up Light(s)
+      description: The light(s) that will gradually brighten
       selector:
         entity:
-          domain: light
-    condition checks:
-      name: Condition to check if person is in zone
-      input:
-        person_entity:
-          name: Person Entity
-          description: The person entity to check if they are home
-          selector:
-            entity:
-              domain: person
-        home_zone:
-          name: Home Zone
-          description: The zone entity representing home
-          selector:
-            entity:
-              domain: zone
-          default: zone.home
-    transition_time:
-      name: Transition Time
-      description: Duration of the wake-up sequence in minutes
-      default: 30
-      selector:
-        number:
-          min: 1
-          max: 120
-          unit_of_measurement: minutes
-          mode: slider
-          step: 1
+          multiple: true
+          filter:
+            - domain: light
     weekday:
       name: Active Days
-      description: Select the days when the wake-up light should be active
-      default: 
+      description: Days on which the wake-up light should run
+      default:
         - mon
         - tue
         - wed
@@ -69,53 +56,139 @@ blueprint:
               value: sat
             - label: Sunday
               value: sun
+    transition_time:
+      name: Transition Time
+      description: Duration of the wake-up sequence
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 120
+          step: 1
+          unit_of_measurement: minutes
+          mode: slider
+    presence:
+      name: Presence
+      icon: mdi:home-account
+      collapsed: true
+      input:
+        person_entity:
+          name: Person(s)
+          description: >-
+            Only run when at least one of these people is in the zone below.
+            Leave empty to always run.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: person
+        home_zone:
+          name: Zone
+          description: The zone the person(s) must be in
+          default: zone.home
+          selector:
+            entity:
+              filter:
+                - domain: zone
+    light_settings:
+      name: Light settings
+      icon: mdi:weather-sunset-up
+      collapsed: true
+      input:
+        start_brightness:
+          name: Start Brightness
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+        end_brightness:
+          name: End Brightness
+          default: 100
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+        start_kelvin:
+          name: Start Color Temperature
+          description: Ignored by lights that do not support color temperature
+          default: 2202
+          selector:
+            color_temp:
+              unit: kelvin
+              min: 2000
+              max: 6500
+        end_kelvin:
+          name: End Color Temperature
+          description: Ignored by lights that do not support color temperature
+          default: 4000
+          selector:
+            color_temp:
+              unit: kelvin
+              min: 2000
+              max: 6500
 
-# Automation configuration
-alias: Gradual Wake-up Light
-description: Gradually brightens a light to simulate sunrise for waking up
+mode: single
+max_exceeded: silent
+
 variables:
-  # Make input my_input available as a script level variable
-  light_entity: !input light_entity
+  lights: !input light_entity
+  persons: !input person_entity
+  home_zone: !input home_zone
   transition_time: !input transition_time
-trigger:
-  - platform: time
+  start_brightness: !input start_brightness
+  end_brightness: !input end_brightness
+  start_kelvin: !input start_kelvin
+  end_kelvin: !input end_kelvin
+  # One step per percent of brightness change, at least one step
+  steps: "{{ [(end_brightness - start_brightness) | abs | int, 1] | max }}"
+  step_ms: "{{ (transition_time * 60000 / steps) | int }}"
+
+triggers:
+  - trigger: time
     at: !input wake_time
-condition:
+
+conditions:
   - condition: time
     weekday: !input weekday
-  - condition: zone
-    entity_id: !input person_entity
-    zone: !input home_zone
-action:
+  - condition: template
+    value_template: >-
+      {% set people = [persons] if persons is string else persons %}
+      {% set in_zone = state_attr(home_zone, 'persons') or [] %}
+      {{ people | count == 0 or people | select('in', in_zone) | list | count > 0 }}
+
+actions:
   - action: light.turn_on
     target:
-      entity_id: !input light_entity
+      entity_id: "{{ lights }}"
     data:
-      brightness_pct: 10
-      kelvin: 2202
+      brightness_pct: "{{ start_brightness }}"
+      color_temp_kelvin: "{{ start_kelvin }}"
   - repeat:
+      while:
+        # Stop when all lights were turned off (e.g. manually) or the end is reached
+        - condition: template
+          value_template: >-
+            {{ repeat.index <= steps
+               and expand(lights) | selectattr('state', 'eq', 'on') | list | count > 0 }}
       sequence:
         - action: light.turn_on
           target:
-            entity_id: !input light_entity
+            entity_id: >-
+              {{ expand(lights) | selectattr('state', 'eq', 'on')
+                 | map(attribute='entity_id') | list }}
           data:
-            brightness_step_pct: 1
-            kelvin: >-
-              {% set brightness = state_attr(light_entity, 'brightness')|default(0) %}
-              {% set brightness_pct = (brightness|float / 255 * 100)|round(1) %}
-              {% set kelvin = ((brightness_pct - 10) / (100 - 10) * (4000 - 2202) + 2202)|round %}
-              {{ kelvin|int }}
+            brightness_pct: >-
+              {{ (start_brightness + (end_brightness - start_brightness) * repeat.index / steps) | round(1) }}
+            color_temp_kelvin: >-
+              {{ (start_kelvin + (end_kelvin - start_kelvin) * repeat.index / steps) | round | int }}
+            transition: "{{ (step_ms / 1000) | round(1) }}"
         - delay:
-            seconds: >-
-              {% set total_seconds = transition_time * 60 %}
-              {% set delay_per_step = (total_seconds / 90)|round %}
-              {{ delay_per_step }}
-      while:
-        - condition: numeric_state
-          entity_id: !input light_entity
-          attribute: brightness
-          below: 253
-        - condition: state
-          entity_id: !input light_entity
-          state: "on"
-mode: single
+            milliseconds: "{{ step_ms }}"
