@@ -1,0 +1,300 @@
+blueprint:
+  name: Sun Screen Control
+  author: fromej
+  description: >-
+    Keeps a room cool by closing sun screens when the sun shines on them and
+    the room (or the outside) is warm, and opening them again when the sun is
+    gone or it has cooled down. In winter they stay open so the sun can warm
+    the room. In strong wind they open to protect them.
+
+
+    Use one automation per side of the house, so each set of screens only
+    reacts to the sun on its own side.
+
+
+    Only screens that are not already in the desired state receive a command.
+  domain: automation
+  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/sun-screens.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    room_temperature:
+      name: Room Temperature
+      description: Temperature sensor in the room behind the screens
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+    screens:
+      name: Screen(s)
+      description: Sun screens. "Closed" means the screen is down and blocks the sun.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: cover
+    outdoor_temperature:
+      name: Outdoor Temperature
+      description: >-
+        Optional outdoor temperature sensor or weather entity. When set,
+        screens also close on hot days before the room has warmed up.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+            - domain: weather
+    enabled_helper:
+      name: Enable Switch
+      description: >-
+        Optional input_boolean. The automation only acts while it is on, so
+        turn it off to control the screens manually.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+    temperature_settings:
+      name: Temperature settings
+      icon: mdi:thermometer
+      collapsed: true
+      input:
+        room_threshold:
+          name: Room Temperature Threshold
+          description: Screens close when the sun shines on them and the room is warmer than this
+          default: 22
+          selector:
+            number:
+              min: 15
+              max: 35
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+        outdoor_threshold:
+          name: Outdoor Temperature Threshold
+          description: >-
+            Screens also close when the sun shines on them and it is warmer
+            than this outside. Only used when an outdoor temperature is set.
+          default: 25
+          selector:
+            number:
+              min: 10
+              max: 40
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+        hysteresis:
+          name: Hysteresis
+          description: >-
+            How far the temperature must drop below a threshold before the
+            screens open again while the sun is still on them. Prevents
+            constant opening and closing.
+          default: 1
+          selector:
+            number:
+              min: 0.5
+              max: 5
+              step: 0.5
+              unit_of_measurement: °C
+              mode: slider
+    sun_settings:
+      name: Sun settings
+      icon: mdi:weather-sunny
+      collapsed: true
+      input:
+        min_sun_elevation:
+          name: Minimum Sun Elevation
+          description: The sun counts as shining on the screens above this elevation
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              unit_of_measurement: °
+              mode: slider
+        sun_azimuth_start:
+          name: Sun Azimuth Start
+          description: >-
+            Start of the sun direction that hits the screens (0 = north,
+            90 = east, 180 = south, 270 = west). Use 0 to 360 for any direction.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 360
+              step: 1
+              unit_of_measurement: °
+              mode: slider
+        sun_azimuth_end:
+          name: Sun Azimuth End
+          description: End of the sun direction that hits the screens. May be lower than the start to wrap past north.
+          default: 360
+          selector:
+            number:
+              min: 0
+              max: 360
+              step: 1
+              unit_of_measurement: °
+              mode: slider
+        illuminance_sensor:
+          name: Illuminance Sensor
+          description: Optional. When set, screens only close when it is brighter than the threshold below.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: illuminance
+        illuminance_threshold:
+          name: Illuminance Threshold
+          default: 20000
+          selector:
+            number:
+              min: 0
+              max: 100000
+              step: 500
+              unit_of_measurement: lx
+              mode: box
+    weather_protection:
+      name: Weather protection
+      icon: mdi:weather-windy
+      collapsed: true
+      input:
+        wind_speed_sensor:
+          name: Wind Speed Sensor
+          description: Optional wind speed sensor
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: wind_speed
+        max_wind:
+          name: Maximum Wind Speed
+          description: Screens open (retract) at or above this wind speed (in the unit of the wind sensor)
+          default: 40
+          selector:
+            number:
+              min: 0
+              max: 200
+              step: 1
+              mode: box
+
+mode: single
+max_exceeded: silent
+
+trigger_variables:
+  wind_trigger_sensor: !input wind_speed_sensor
+  trigger_max_wind: !input max_wind
+
+triggers:
+  - trigger: state
+    entity_id: !input room_temperature
+    to: ~
+  # Catches sun movement, the outdoor temperature and the optional sensors
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: homeassistant
+    event: start
+  # Retract immediately when the wind picks up
+  - trigger: template
+    value_template: >-
+      {{ wind_trigger_sensor != ''
+         and states(wind_trigger_sensor) | float(0) >= trigger_max_wind }}
+
+variables:
+  room_sensor: !input room_temperature
+  screens: !input screens
+  outdoor_entity: !input outdoor_temperature
+  enabled_helper: !input enabled_helper
+  room_threshold: !input room_threshold
+  outdoor_threshold: !input outdoor_threshold
+  hysteresis: !input hysteresis
+  min_sun_elevation: !input min_sun_elevation
+  sun_azimuth_start: !input sun_azimuth_start
+  sun_azimuth_end: !input sun_azimuth_end
+  illuminance_sensor: !input illuminance_sensor
+  illuminance_threshold: !input illuminance_threshold
+  wind_speed_sensor: !input wind_speed_sensor
+  max_wind: !input max_wind
+  screen_list: "{{ [screens] if screens is string else screens }}"
+  room_temp: "{{ states(room_sensor) | float(none) }}"
+  outdoor_temp: >-
+    {%- if outdoor_entity == '' %}
+      {{- none }}
+    {%- elif outdoor_entity.startswith('weather.') %}
+      {{- state_attr(outdoor_entity, 'temperature') | float(none) }}
+    {%- else %}
+      {{- states(outdoor_entity) | float(none) }}
+    {%- endif %}
+  wind_speed: "{{ states(wind_speed_sensor) | float(0) if wind_speed_sensor != '' else 0 }}"
+  sun_on_screens: >-
+    {% set elevation = state_attr('sun.sun', 'elevation') | float(-90) %}
+    {% set azimuth = state_attr('sun.sun', 'azimuth') | float(0) %}
+    {% if sun_azimuth_start <= sun_azimuth_end %}
+      {% set facing = sun_azimuth_start <= azimuth <= sun_azimuth_end %}
+    {% else %}
+      {% set facing = azimuth >= sun_azimuth_start or azimuth <= sun_azimuth_end %}
+    {% endif %}
+    {{ elevation >= min_sun_elevation and facing }}
+  bright: >-
+    {{ illuminance_sensor == ''
+       or states(illuminance_sensor) | float(0) >= illuminance_threshold }}
+  # open, close or none (leave as is, e.g. in between the hysteresis thresholds)
+  screen_action: >-
+    {% set warm_outside = outdoor_temp is number and outdoor_temp >= outdoor_threshold %}
+    {% set cool_outside = outdoor_temp is not number
+         or outdoor_temp < outdoor_threshold - hysteresis %}
+    {% if room_temp is not number %}
+      none
+    {% elif wind_speed_sensor != '' and wind_speed >= max_wind %}
+      open
+    {% elif sun_on_screens and bright and (room_temp >= room_threshold or warm_outside) %}
+      close
+    {% elif not sun_on_screens or (room_temp <= room_threshold - hysteresis and cool_outside) %}
+      open
+    {% else %}
+      none
+    {% endif %}
+
+conditions:
+  - condition: template
+    value_template: "{{ enabled_helper == '' or is_state(enabled_helper, 'on') }}"
+  - condition: template
+    value_template: "{{ room_temp is number }}"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ screen_action | trim == 'close' }}"
+        sequence:
+          - variables:
+              targets: >-
+                {{ expand(screen_list) | rejectattr('state', 'in', ['closed', 'closing'])
+                   | map(attribute='entity_id') | list }}
+          - if:
+              - condition: template
+                value_template: "{{ targets | count > 0 }}"
+            then:
+              - action: cover.close_cover
+                target:
+                  entity_id: "{{ targets }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ screen_action | trim == 'open' }}"
+        sequence:
+          - variables:
+              targets: >-
+                {{ expand(screen_list) | rejectattr('state', 'in', ['open', 'opening'])
+                   | map(attribute='entity_id') | list }}
+          - if:
+              - condition: template
+                value_template: "{{ targets | count > 0 }}"
+            then:
+              - action: cover.open_cover
+                target:
+                  entity_id: "{{ targets }}"
