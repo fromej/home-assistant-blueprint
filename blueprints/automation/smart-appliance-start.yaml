@@ -1,0 +1,279 @@
+blueprint:
+  name: Smart Appliance Start
+  author: fromej
+  description: >-
+    Starts an appliance that runs a program by itself (dishwasher, washing
+    machine, dryer) at the best moment before a deadline: as soon as there is
+    enough solar surplus, otherwise in the cheapest hours of a dynamic energy
+    tariff, and at the latest when it must start to be finished by the
+    deadline.
+
+
+    Load the appliance and make it ready (for example by enabling remote
+    start); the automation then starts it once, using the start action you
+    define (press a start button, turn on a smart plug, ...).
+  domain: automation
+  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/smart-appliance-start.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    appliance_name:
+      name: Appliance Name
+      description: Used in the notification, e.g. "Dishwasher"
+      default: Dishwasher
+      selector:
+        text: {}
+    ready_entity:
+      name: Ready Signal
+      description: >-
+        On when the appliance is loaded and may be started, e.g. the remote
+        start sensor of a Home Connect or Miele appliance, or an input_boolean
+        you turn on by hand. It is started once each time this turns on.
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+            - domain: input_boolean
+            - domain: switch
+    start_action:
+      name: Start Action
+      description: >-
+        What starts the appliance, e.g. pressing its start button or turning
+        on its smart plug. When the ready signal is an input_boolean, turn it
+        off here too.
+      selector:
+        action: {}
+    program_duration:
+      name: Program Duration
+      description: How long the program takes
+      default: 180
+      selector:
+        number:
+          min: 10
+          max: 600
+          step: 5
+          unit_of_measurement: minutes
+          mode: box
+    deadline:
+      name: Finished By
+      description: The program must be finished by this time (the next occurrence after the appliance became ready)
+      default: "07:00:00"
+      selector:
+        time: {}
+    notify_devices:
+      name: Notify Device(s)
+      description: Optional. Phones with the Companion app to notify when the appliance is started.
+      default: []
+      selector:
+        device:
+          multiple: true
+          filter:
+            - integration: mobile_app
+    enabled_helper:
+      name: Enable Switch
+      description: Optional input_boolean. The automation only acts while it is on.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+    solar_settings:
+      name: Solar surplus
+      icon: mdi:solar-power
+      collapsed: true
+      input:
+        grid_sensor:
+          name: Grid Power Sensor
+          description: >-
+            Optional. Net grid power in W or kW, negative while exporting
+            (e.g. the active power of a P1 meter).
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+        required_surplus:
+          name: Required Surplus
+          description: Start when exporting at least this much (roughly the appliance's heating power). 0 disables solar starts.
+          default: 1500
+          selector:
+            number:
+              min: 0
+              max: 10000
+              step: 50
+              unit_of_measurement: W
+              mode: box
+        surplus_duration:
+          name: Surplus Duration
+          description: How long the surplus must last before starting
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: minutes
+              mode: slider
+    price_settings:
+      name: Dynamic tariff
+      icon: mdi:currency-eur
+      collapsed: true
+      input:
+        price_sensor:
+          name: Price Sensor
+          description: Optional. Energy price sensor with the upcoming prices in an attribute.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        price_attributes:
+          name: Price Attribute(s)
+          description: >-
+            Attribute(s) holding the list of prices, separated by commas.
+            Nord Pool (HACS): "raw_today, raw_tomorrow"; ENTSO-e: "prices";
+            Frank Energie: "prices".
+          default: raw_today, raw_tomorrow
+          selector:
+            text: {}
+        start_key:
+          name: Start Time Key
+          description: 'Key of the start time in each entry. Nord Pool: "start"; ENTSO-e: "time"; Frank Energie: "from".'
+          default: start
+          selector:
+            text: {}
+        price_key:
+          name: Price Key
+          description: 'Key of the price in each entry. Nord Pool: "value"; ENTSO-e and Frank Energie: "price".'
+          default: value
+          selector:
+            text: {}
+
+mode: single
+max_exceeded: silent
+
+trigger_variables:
+  trigger_ready: !input ready_entity
+  trigger_grid: !input grid_sensor
+  trigger_surplus: !input required_surplus
+
+triggers:
+  - trigger: template
+    value_template: >-
+      {% set factor = 1000 if state_attr(trigger_grid, 'unit_of_measurement') == 'kW' else 1 %}
+      {{ trigger_grid != '' and trigger_surplus > 0 and is_state(trigger_ready, 'on')
+         and states(trigger_grid) | float(0) * factor <= -trigger_surplus }}
+    for:
+      minutes: !input surplus_duration
+    id: surplus
+  - trigger: state
+    entity_id: !input ready_entity
+    to: "on"
+  # Catches the cheapest slot and the latest start
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: homeassistant
+    event: start
+
+variables:
+  appliance_name: !input appliance_name
+  ready_entity: !input ready_entity
+  program_duration: !input program_duration
+  deadline: !input deadline
+  notify_devices: !input notify_devices
+  enabled_helper: !input enabled_helper
+  price_sensor: !input price_sensor
+  price_attributes: !input price_attributes
+  start_key: !input start_key
+  price_key: !input price_key
+  now_ts: "{{ as_timestamp(now()) }}"
+  # Upcoming prices as [{start: timestamp, price: ...}], sorted by start
+  slots: >-
+    {%- set ns = namespace(slots=[]) %}
+    {%- if price_sensor != '' %}
+      {%- for attr in price_attributes.split(',') %}
+        {%- for e in state_attr(price_sensor, attr | trim) or [] if e is mapping %}
+          {%- set t = as_timestamp(e[start_key], none) if start_key in e else none %}
+          {%- set p = e[price_key] | float(none) if price_key in e else none %}
+          {%- if t is not none and p is not none %}
+            {%- set ns.slots = ns.slots + [{'start': t, 'price': p}] %}
+          {%- endif %}
+        {%- endfor %}
+      {%- endfor %}
+    {%- endif %}
+    {{ ns.slots | unique(attribute='start') | sort(attribute='start') | list }}
+  slot_len: "{{ (slots[1].start - slots[0].start) if slots | count > 1 else 3600 }}"
+  ready_on: "{{ is_state(ready_entity, 'on') }}"
+  ready_since: >-
+    {{ as_timestamp((expand(ready_entity) | first).last_changed) if ready_on else 0 }}
+  # Next occurrence of the deadline after the appliance became ready
+  deadline_ts: >-
+    {% set d = as_timestamp(today_at(deadline)) %}
+    {% if d - 86400 > ready_since %}
+      {{ d - 86400 }}
+    {% elif d <= ready_since %}
+      {{ d + 86400 }}
+    {% else %}
+      {{ d }}
+    {% endif %}
+  latest_start_ts: "{{ deadline_ts - program_duration * 60 }}"
+  # Only this automation's start passes the conditions, so last_triggered is the last start
+  started: >-
+    {% set last = state_attr(this.entity_id, 'last_triggered') %}
+    {# Also counts as started during the program, in case the ready signal
+       stays on and its last change was reset by a restart #}
+    {{ last is not none and (as_timestamp(last) >= ready_since
+                             or now_ts - as_timestamp(last) < program_duration * 60) }}
+  # Start of the cheapest run before the deadline, once the prices up to the
+  # deadline are known (for slots already begun, the run starts now)
+  planned_ts: >-
+    {% set duration = program_duration * 60 %}
+    {% set k = ((duration / slot_len) | round(0, 'ceil')) | int %}
+    {% set ns = namespace(best=none, avg=none) %}
+    {% if slots | count > 0 and (slots | last).start + slot_len >= deadline_ts %}
+      {% for i in range(slots | count - k + 1) %}
+        {% set start = slots[i].start %}
+        {% if start + slot_len > now_ts and ([start, now_ts] | max) + duration <= deadline_ts %}
+          {% set avg = (slots[i:i + k] | map(attribute='price') | sum) / k %}
+          {% if ns.avg is none or avg < ns.avg %}
+            {% set ns.best = start %}
+            {% set ns.avg = avg %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {{ ns.best }}
+  start_reason: >-
+    {% if not ready_on or started %}
+      none
+    {% elif trigger.id == 'surplus' %}
+      solar surplus
+    {% elif now_ts >= latest_start_ts %}
+      deadline
+    {% elif planned_ts is number and planned_ts <= now_ts %}
+      cheapest hours
+    {% else %}
+      none
+    {% endif %}
+
+conditions:
+  - condition: template
+    value_template: "{{ enabled_helper == '' or is_state(enabled_helper, 'on') }}"
+  - condition: template
+    value_template: "{{ start_reason | trim != 'none' }}"
+
+actions:
+  - sequence: !input start_action
+  - repeat:
+      for_each: >-
+        {% set devices = [notify_devices] if notify_devices is string else notify_devices %}
+        {{ devices | map('device_attr', 'name') | map('slugify')
+           | map('regex_replace', '^', 'notify.mobile_app_') | list }}
+      sequence:
+        - action: "{{ repeat.item }}"
+          data:
+            title: "{{ appliance_name }} started"
+            message: >-
+              Started ({{ start_reason | trim }}), finished around
+              {{ (now_ts + program_duration * 60) | timestamp_custom('%H:%M') }}.

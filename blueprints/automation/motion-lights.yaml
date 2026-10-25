@@ -1,0 +1,271 @@
+blueprint:
+  name: Motion Lights
+  author: fromej
+  description: >-
+    Turns lights on when motion is detected and off again when there has been
+    no motion for a while. During night hours the lights come on dimmer and
+    warmer. With an illuminance sensor they only turn on when the room is dark.
+
+
+    Manual override: when you change the lights yourself (wall switch, app,
+    voice), the automation stops its turn-off timer. With an override helper
+    it leaves the lights alone completely until they are turned off again.
+  domain: automation
+  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/motion-lights.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    motion_sensors:
+      name: Motion Sensor(s)
+      description: Motion, occupancy or presence sensors. The room counts as empty when all are off.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: binary_sensor
+              device_class: motion
+            - domain: binary_sensor
+              device_class: occupancy
+            - domain: binary_sensor
+              device_class: presence
+    lights:
+      name: Light(s)
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: light
+    no_motion_wait:
+      name: Turn-off Delay
+      description: How long the room must be empty before the lights turn off
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 0.5
+          unit_of_measurement: minutes
+          mode: slider
+    enabled_helper:
+      name: Enable Switch
+      description: >-
+        Optional input_boolean. Motion only turns the lights on while it is on.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+    override_helper:
+      name: Override Helper
+      description: >-
+        Optional input_boolean (one per automation) the automation uses to
+        remember a manual change. While it is on, motion is ignored; it turns
+        off again when all lights are off. Without it, a manual change only
+        cancels the current turn-off timer.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+    light_settings:
+      name: Light settings
+      icon: mdi:lightbulb-on
+      collapsed: true
+      input:
+        day_brightness:
+          name: Day Brightness
+          default: 100
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+        day_kelvin:
+          name: Day Color Temperature
+          description: Ignored by lights that do not support color temperature
+          default: 4000
+          selector:
+            color_temp:
+              unit: kelvin
+              min: 2000
+              max: 6500
+        transition:
+          name: Transition
+          description: Fade time when turning the lights on and off
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 0.5
+              unit_of_measurement: seconds
+              mode: slider
+    night_settings:
+      name: Night mode
+      icon: mdi:weather-night
+      collapsed: true
+      input:
+        night_start:
+          name: Night Start
+          default: "23:00:00"
+          selector:
+            time: {}
+        night_end:
+          name: Night End
+          default: "06:30:00"
+          selector:
+            time: {}
+        night_brightness:
+          name: Night Brightness
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+        night_kelvin:
+          name: Night Color Temperature
+          description: Ignored by lights that do not support color temperature
+          default: 2200
+          selector:
+            color_temp:
+              unit: kelvin
+              min: 2000
+              max: 6500
+    illuminance_settings:
+      name: Illuminance
+      icon: mdi:brightness-5
+      collapsed: true
+      input:
+        illuminance_sensor:
+          name: Illuminance Sensor
+          description: Optional. When set, lights only turn on when it is darker than the threshold below.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: illuminance
+        illuminance_threshold:
+          name: Illuminance Threshold
+          default: 30
+          selector:
+            number:
+              min: 0
+              max: 1000
+              step: 1
+              unit_of_measurement: lx
+              mode: box
+
+# New motion restarts the turn-off timer
+mode: restart
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input motion_sensors
+    to: "on"
+    id: motion
+  # Any change of the lights, filtered below to manual changes
+  - trigger: state
+    entity_id: !input lights
+    id: light
+
+variables:
+  motion_sensors: !input motion_sensors
+  lights: !input lights
+  no_motion_wait: !input no_motion_wait
+  enabled_helper: !input enabled_helper
+  override_helper: !input override_helper
+  day_brightness: !input day_brightness
+  day_kelvin: !input day_kelvin
+  transition: !input transition
+  night_brightness: !input night_brightness
+  night_kelvin: !input night_kelvin
+  illuminance_sensor: !input illuminance_sensor
+  illuminance_threshold: !input illuminance_threshold
+  sensor_list: "{{ [motion_sensors] if motion_sensors is string else motion_sensors }}"
+  light_list: "{{ [lights] if lights is string else lights }}"
+  any_light_on: "{{ expand(light_list) | selectattr('state', 'eq', 'on') | list | count > 0 }}"
+  overridden: "{{ override_helper != '' and is_state(override_helper, 'on') }}"
+
+conditions:
+  - condition: template
+    value_template: >-
+      {% if trigger.id == 'motion' %}
+        {{ (enabled_helper == '' or is_state(enabled_helper, 'on')) and not overridden }}
+      {% else %}
+        {% set f = trigger.from_state %}
+        {% set t = trigger.to_state %}
+        {% if f is none or t is none or f.state not in ['on', 'off'] or t.state not in ['on', 'off'] %}
+          false
+        {% elif t.state == 'off' and not any_light_on and overridden %}
+          {# All lights off, whoever did it: end the override #}
+          true
+        {% else %}
+          {# Changes by this or another automation have a parent context.
+             Without one, it was a switch or device (on/off) or a person in
+             the app or by voice (user_id set, also for brightness changes). #}
+          {{ t.context.parent_id is none
+             and (f.state != t.state or t.context.user_id is not none) }}
+        {% endif %}
+      {% endif %}
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ trigger.id == 'light' }}"
+    then:
+      # Manual change: the restart already cancelled the turn-off timer
+      - if:
+          - condition: template
+            value_template: "{{ override_helper != '' }}"
+        then:
+          - action: "input_boolean.turn_{{ 'on' if any_light_on else 'off' }}"
+            target:
+              entity_id: "{{ override_helper }}"
+      - stop: Manual change
+  - if:
+      - condition: template
+        value_template: "{{ not any_light_on }}"
+    then:
+      - if:
+          - condition: template
+            value_template: >-
+              {{ illuminance_sensor != ''
+                 and states(illuminance_sensor) | float(0) >= illuminance_threshold }}
+        then:
+          - stop: Bright enough
+      - if:
+          - condition: time
+            after: !input night_start
+            before: !input night_end
+        then:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ light_list }}"
+            data:
+              brightness_pct: "{{ night_brightness }}"
+              color_temp_kelvin: "{{ night_kelvin }}"
+              transition: "{{ transition }}"
+        else:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ light_list }}"
+            data:
+              brightness_pct: "{{ day_brightness }}"
+              color_temp_kelvin: "{{ day_kelvin }}"
+              transition: "{{ transition }}"
+  - wait_template: >-
+      {{ expand(sensor_list) | selectattr('state', 'eq', 'on') | list | count == 0 }}
+  - delay:
+      seconds: "{{ (no_motion_wait * 60) | int }}"
+  - action: light.turn_off
+    target:
+      entity_id: "{{ light_list }}"
+    data:
+      transition: "{{ transition }}"

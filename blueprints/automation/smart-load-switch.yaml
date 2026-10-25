@@ -1,0 +1,331 @@
+blueprint:
+  name: Smart Load Switch
+  author: fromej
+  description: >-
+    Switches a flexible load (EV charger, electric boiler, heat pump boiler,
+    dehumidifier, ...) on when there is solar surplus, during the cheapest
+    hours of a dynamic energy tariff before a deadline, and whenever the price
+    is very low. It switches off again when the surplus is gone, the cheap
+    hours are over, a target (battery level, water temperature) is reached or
+    the load is no longer ready (car unplugged).
+  domain: automation
+  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/smart-load-switch.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    load:
+      name: Load
+      description: Switch that turns the load on and off
+      selector:
+        entity:
+          filter:
+            - domain: switch
+            - domain: input_boolean
+    ready_entity:
+      name: Ready Signal
+      description: >-
+        Optional. The load only runs while this is on, e.g. "car plugged in".
+        The cheapest hours are counted from the moment it turned on.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+            - domain: input_boolean
+            - domain: switch
+    target_sensor:
+      name: Target Sensor
+      description: Optional. The load stops once this reaches the target value, e.g. the car's battery level or the boiler temperature.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    target_value:
+      name: Target Value
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 1
+          mode: box
+    enabled_helper:
+      name: Enable Switch
+      description: >-
+        Optional input_boolean. The automation only acts while it is on, so
+        turn it off to control the load by hand.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+    solar_settings:
+      name: Solar surplus
+      icon: mdi:solar-power
+      collapsed: true
+      input:
+        grid_sensor:
+          name: Grid Power Sensor
+          description: >-
+            Optional. Net grid power in W or kW, negative while exporting
+            (e.g. the active power of a P1 meter). Without it, the load only
+            follows the prices.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+        load_power:
+          name: Load Power
+          description: Switch on when exporting at least this much (the power the load uses). 0 disables solar control.
+          default: 2000
+          selector:
+            number:
+              min: 0
+              max: 22000
+              step: 50
+              unit_of_measurement: W
+              mode: box
+        max_import:
+          name: Allowed Import
+          description: While running on solar, switch off when importing more than this from the grid
+          default: 300
+          selector:
+            number:
+              min: 0
+              max: 10000
+              step: 50
+              unit_of_measurement: W
+              mode: box
+        surplus_duration:
+          name: Switch-on Delay
+          description: How long the surplus must last before switching on
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: minutes
+              mode: slider
+        import_duration:
+          name: Switch-off Delay
+          description: How long the import must last before switching off
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: minutes
+              mode: slider
+    price_settings:
+      name: Dynamic tariff
+      icon: mdi:currency-eur
+      collapsed: true
+      input:
+        price_sensor:
+          name: Price Sensor
+          description: Optional. Sensor with the current energy price as state and the upcoming prices in an attribute.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        price_attributes:
+          name: Price Attribute(s)
+          description: >-
+            Attribute(s) holding the list of prices, separated by commas.
+            Nord Pool (HACS): "raw_today, raw_tomorrow"; ENTSO-e: "prices";
+            Frank Energie: "prices".
+          default: raw_today, raw_tomorrow
+          selector:
+            text: {}
+        start_key:
+          name: Start Time Key
+          description: 'Key of the start time in each entry. Nord Pool: "start"; ENTSO-e: "time"; Frank Energie: "from".'
+          default: start
+          selector:
+            text: {}
+        price_key:
+          name: Price Key
+          description: 'Key of the price in each entry. Nord Pool: "value"; ENTSO-e and Frank Energie: "price".'
+          default: value
+          selector:
+            text: {}
+        cheap_hours:
+          name: Cheapest Hours
+          description: Run during this many of the cheapest hours before the deadline (0 = off)
+          default: 4
+          selector:
+            number:
+              min: 0
+              max: 24
+              step: 0.25
+              unit_of_measurement: hours
+              mode: slider
+        deadline:
+          name: Deadline
+          description: The cheapest hours are picked from the period ending at this time
+          default: "07:00:00"
+          selector:
+            time: {}
+        run_on_low_price:
+          name: Run On Low Price
+          description: Also run whenever the price is at or below the price below
+          default: true
+          selector:
+            boolean: {}
+        low_price:
+          name: Low Price
+          description: In the unit of the price sensor. 0 runs the load whenever power is free or you get paid to use it.
+          default: 0
+          selector:
+            number:
+              min: -10
+              max: 10
+              step: 0.01
+              mode: box
+
+mode: single
+max_exceeded: silent
+
+trigger_variables:
+  trigger_load: !input load
+  trigger_ready: !input ready_entity
+  trigger_grid: !input grid_sensor
+  trigger_load_power: !input load_power
+  trigger_max_import: !input max_import
+
+triggers:
+  - trigger: template
+    value_template: >-
+      {% set factor = 1000 if state_attr(trigger_grid, 'unit_of_measurement') == 'kW' else 1 %}
+      {{ trigger_grid != '' and trigger_load_power > 0 and is_state(trigger_load, 'off')
+         and (trigger_ready == '' or is_state(trigger_ready, 'on'))
+         and states(trigger_grid) | float(0) * factor <= -trigger_load_power }}
+    for:
+      minutes: !input surplus_duration
+    id: surplus
+  - trigger: template
+    value_template: >-
+      {% set factor = 1000 if state_attr(trigger_grid, 'unit_of_measurement') == 'kW' else 1 %}
+      {{ trigger_grid != '' and is_state(trigger_load, 'on')
+         and states(trigger_grid) | float(0) * factor > trigger_max_import }}
+    for:
+      minutes: !input import_duration
+    id: import
+  # Price slots start on whole quarters, so every 5 minutes catches each of them
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: homeassistant
+    event: start
+
+variables:
+  load: !input load
+  ready_entity: !input ready_entity
+  target_sensor: !input target_sensor
+  target_value: !input target_value
+  enabled_helper: !input enabled_helper
+  grid_sensor: !input grid_sensor
+  max_import: !input max_import
+  price_sensor: !input price_sensor
+  price_attributes: !input price_attributes
+  start_key: !input start_key
+  price_key: !input price_key
+  cheap_hours: !input cheap_hours
+  deadline: !input deadline
+  run_on_low_price: !input run_on_low_price
+  low_price: !input low_price
+  now_ts: "{{ as_timestamp(now()) }}"
+  # Upcoming prices as [{start: timestamp, price: ...}], sorted by start
+  slots: >-
+    {%- set ns = namespace(slots=[]) %}
+    {%- if price_sensor != '' %}
+      {%- for attr in price_attributes.split(',') %}
+        {%- for e in state_attr(price_sensor, attr | trim) or [] if e is mapping %}
+          {%- set t = as_timestamp(e[start_key], none) if start_key in e else none %}
+          {%- set p = e[price_key] | float(none) if price_key in e else none %}
+          {%- if t is not none and p is not none %}
+            {%- set ns.slots = ns.slots + [{'start': t, 'price': p}] %}
+          {%- endif %}
+        {%- endfor %}
+      {%- endfor %}
+    {%- endif %}
+    {{ ns.slots | unique(attribute='start') | sort(attribute='start') | list }}
+  slot_len: "{{ (slots[1].start - slots[0].start) if slots | count > 1 else 3600 }}"
+  current_slot: >-
+    {% set past = slots | selectattr('start', 'le', now_ts) | list %}
+    {{ past | last if past and now_ts < (past | last).start + slot_len else none }}
+  previous_slot: >-
+    {% set prev = slots | selectattr('start', 'eq', current_slot.start - slot_len) | list
+       if current_slot is mapping else [] %}
+    {{ prev | first if prev else none }}
+  ready: "{{ ready_entity == '' or is_state(ready_entity, 'on') }}"
+  # The cheapest hours are picked from the period between the previous
+  # deadline (or the moment the load became ready) and the next deadline
+  next_deadline_ts: >-
+    {% set d = as_timestamp(today_at(deadline)) %}
+    {{ d if d > now_ts else d + 86400 }}
+  period_start_ts: >-
+    {% set since = as_timestamp((expand(ready_entity) | first).last_changed)
+       if ready_entity != '' and ready else 0 %}
+    {{ [next_deadline_ts - 86400, since] | max }}
+  # Only picked once the prices up to the deadline are known
+  cheap_starts: >-
+    {% set k = ((cheap_hours * 3600 / slot_len) | round(0, 'ceil')) | int %}
+    {% if slots | count > 0 and (slots | last).start + slot_len >= next_deadline_ts %}
+      {% set period = slots | selectattr('start', 'lt', next_deadline_ts)
+         | selectattr('start', 'gt', period_start_ts - slot_len) | list %}
+      {{ (period | sort(attribute='price'))[:k] | map(attribute='start') | list }}
+    {% else %}
+      []
+    {% endif %}
+  price_now: >-
+    {{ current_slot.price if current_slot is mapping
+       else states(price_sensor) | float(none) if price_sensor != '' else none }}
+  cheap_now: >-
+    {{ current_slot is mapping and current_slot.start in cheap_starts
+       or run_on_low_price and price_now is number and price_now <= low_price }}
+  # Just after the end of a cheap slot (the first check in the next slot)
+  cheap_ended: >-
+    {{ previous_slot is mapping and not cheap_now
+       and now_ts - current_slot.start < 300
+       and (previous_slot.start in cheap_starts
+            or run_on_low_price and previous_slot.price <= low_price) }}
+  target_reached: >-
+    {% set value = states(target_sensor) | float(none) if target_sensor != '' else none %}
+    {{ value is number and value >= target_value }}
+  grid_power: >-
+    {% set factor = 1000 if state_attr(grid_sensor, 'unit_of_measurement') == 'kW' else 1 %}
+    {{ states(grid_sensor) | float(0) * factor if grid_sensor != '' else 0 }}
+  # on, off or none (leave as is)
+  desired: >-
+    {% if not ready or target_reached %}
+      off
+    {% elif cheap_now %}
+      on
+    {% elif trigger.id == 'surplus' %}
+      on
+    {% elif trigger.id == 'import' %}
+      off
+    {% elif grid_sensor == '' %}
+      off
+    {% elif cheap_ended and grid_power > max_import %}
+      off
+    {% else %}
+      none
+    {% endif %}
+
+conditions:
+  - condition: template
+    value_template: "{{ enabled_helper == '' or is_state(enabled_helper, 'on') }}"
+  - condition: template
+    value_template: "{{ desired | trim != 'none' and not is_state(load, desired | trim) }}"
+
+actions:
+  - action: "homeassistant.turn_{{ desired | trim }}"
+    target:
+      entity_id: "{{ load }}"

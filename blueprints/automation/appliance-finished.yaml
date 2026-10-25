@@ -1,0 +1,229 @@
+blueprint:
+  name: Appliance Finished
+  author: fromej
+  description: >-
+    Sends a notification when a washing machine, dryer, dishwasher or other
+    appliance has finished, based on the power use measured by a smart plug
+    or energy sensor. Keeps reminding you until you tap "Emptied", open the
+    appliance door or start the appliance again.
+  domain: automation
+  source_url: https://github.com/fromej/home-assistant-blueprint/blob/main/blueprints/automation/appliance-finished.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    power_sensor:
+      name: Power Sensor
+      description: Power use of the appliance (W)
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    appliance_name:
+      name: Appliance Name
+      description: Used in the notification, e.g. "Washing machine"
+      default: Washing machine
+      selector:
+        text: {}
+    notify_devices:
+      name: Notify Device(s)
+      description: Phones with the Home Assistant Companion app
+      selector:
+        device:
+          multiple: true
+          filter:
+            - integration: mobile_app
+    detection_settings:
+      name: Detection
+      icon: mdi:flash
+      collapsed: true
+      input:
+        start_power:
+          name: Start Power
+          description: The appliance counts as running above this power...
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 2000
+              step: 1
+              unit_of_measurement: W
+              mode: box
+        start_duration:
+          name: Start Duration
+          description: ...for at least this long
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 30
+              step: 1
+              unit_of_measurement: minutes
+              mode: slider
+        finish_power:
+          name: Finish Power
+          description: The appliance counts as finished below this power...
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 500
+              step: 0.5
+              unit_of_measurement: W
+              mode: box
+        finish_duration:
+          name: Finish Duration
+          description: >-
+            ...for at least this long. Make it longer than the quiet phases
+            during a program (soaking, drying pauses).
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: minutes
+              mode: slider
+    reminder_settings:
+      name: Reminders
+      icon: mdi:bell-ring
+      collapsed: true
+      input:
+        door_sensor:
+          name: Door Sensor
+          description: Optional. Opening the appliance door stops the reminders.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: binary_sensor
+        reminder_interval:
+          name: Reminder Interval
+          default: 30
+          selector:
+            number:
+              min: 5
+              max: 240
+              step: 5
+              unit_of_measurement: minutes
+              mode: slider
+        max_reminders:
+          name: Maximum Reminders
+          description: Number of reminders after the first notification (0 = no reminders)
+          default: 3
+          selector:
+            number:
+              min: 0
+              max: 20
+              step: 1
+              mode: slider
+
+# A start detected while still reminding queues a new run
+mode: queued
+max: 3
+max_exceeded: silent
+
+triggers:
+  - trigger: numeric_state
+    entity_id: !input power_sensor
+    above: !input start_power
+    for:
+      minutes: !input start_duration
+
+variables:
+  power_sensor: !input power_sensor
+  appliance_name: !input appliance_name
+  notify_devices: !input notify_devices
+  start_power: !input start_power
+  start_duration: !input start_duration
+  finish_power: !input finish_power
+  door_sensor: !input door_sensor
+  reminder_interval: !input reminder_interval
+  max_reminders: !input max_reminders
+  device_list: "{{ [notify_devices] if notify_devices is string else notify_devices }}"
+  notify_actions: >-
+    {{ device_list | map('device_attr', 'name') | map('slugify')
+       | map('regex_replace', '^', 'notify.mobile_app_') | list }}
+  tag: "{{ this.entity_id }}"
+  emptied_action: "{{ 'EMPTIED_' ~ this.entity_id ~ '_' ~ now().timestamp() | int }}"
+  started_ts: "{{ as_timestamp(now()) - start_duration * 60 }}"
+
+conditions:
+  # A queued run that only starts once the appliance is idle again is stale
+  - condition: template
+    value_template: "{{ states(power_sensor) | float(0) > finish_power }}"
+
+actions:
+  - wait_for_trigger:
+      - trigger: numeric_state
+        entity_id: !input power_sensor
+        below: !input finish_power
+        for:
+          minutes: !input finish_duration
+  - variables:
+      message: >-
+        {% set m = ((as_timestamp(now()) - started_ts) / 60) | round | int %}
+        {% set took = (m // 60) ~ ' h ' ~ (m % 60) ~ ' min' if m >= 60 else m ~ ' min' %}
+        {{ appliance_name }} finished after {{ took }}.
+  - repeat:
+      for_each: "{{ notify_actions }}"
+      sequence:
+        - action: "{{ repeat.item }}"
+          data:
+            title: "{{ appliance_name }} finished"
+            message: "{{ message }}"
+            data:
+              tag: "{{ tag }}"
+              actions:
+                - action: "{{ emptied_action }}"
+                  title: Emptied
+  # Wait for "Emptied", the door or a new start, reminding in between. The
+  # last round only waits, so the button keeps working after the last reminder.
+  - repeat:
+      count: "{{ max_reminders | int + 1 }}"
+      sequence:
+        - wait_for_trigger:
+            - trigger: event
+              event_type: mobile_app_notification_action
+              event_data:
+                action: "{{ emptied_action }}"
+            - trigger: template
+              value_template: "{{ door_sensor != '' and is_state(door_sensor, 'on') }}"
+            # Started again, so it was emptied
+            - trigger: numeric_state
+              entity_id: !input power_sensor
+              above: !input start_power
+              for:
+                minutes: !input start_duration
+          timeout:
+            minutes: "{{ reminder_interval }}"
+        - if:
+            - condition: template
+              value_template: "{{ wait.trigger is not none }}"
+          then:
+            # Remove the notification from all phones
+            - repeat:
+                for_each: "{{ notify_actions }}"
+                sequence:
+                  - action: "{{ repeat.item }}"
+                    data:
+                      message: clear_notification
+                      data:
+                        tag: "{{ tag }}"
+            - stop: Emptied
+        - if:
+            - condition: template
+              value_template: "{{ repeat.index <= max_reminders | int }}"
+          then:
+            - repeat:
+                for_each: "{{ notify_actions }}"
+                sequence:
+                  - action: "{{ repeat.item }}"
+                    data:
+                      title: "Reminder: {{ appliance_name }} finished"
+                      message: "{{ message }}"
+                      data:
+                        tag: "{{ tag }}"
+                        actions:
+                          - action: "{{ emptied_action }}"
+                            title: Emptied
