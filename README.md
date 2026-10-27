@@ -85,6 +85,22 @@ Requires Home Assistant 2024.10 or newer.
 | Attic at/above comfort temperature and outside at least the minimum difference cooler | Open |
 | Anything in between | Leave as is |
 
+**Window opening** scales with the outside temperature, so cold air comes in
+through a small gap and warmer air through a wide opening:
+
+```
+position = min position + (max position − min position) × (outdoor − minimum outdoor) / (full open − minimum outdoor)
+```
+
+With the defaults (minimum outdoor 12 °C, full open 18 °C, 20%–100%):
+
+| Outside | 12 °C | 13.5 °C | 15 °C | 16.5 °C | ≥ 18 °C |
+| --- | --- | --- | --- | --- | --- |
+| Window position | 20% | 40% | 60% | 80% | 100% |
+
+Set the minimum and maximum position to the same value for a fixed opening.
+Windows that cannot be set to a position just open fully.
+
 **Screens** ("closed" means down, blocking the sun)
 
 | Situation | Screens |
@@ -96,9 +112,11 @@ Requires Home Assistant 2024.10 or newer.
 
 The automation checks every 5 minutes, whenever a temperature changes, and
 immediately when it starts raining or the wind picks up. Covers that are
-already in the desired state are not touched, so a window you opened to a
-different position stays there. Use the optional enable switch
-(`input_boolean`) to pause the automation and control everything by hand.
+already in the desired state are not touched. Open windows follow the
+calculated position once it differs by at least the position tolerance, so a
+window you set by hand is moved back while the automation wants it open. Use
+the optional enable switch (`input_boolean`) to pause the automation and
+control everything by hand.
 
 ### Inputs
 
@@ -112,7 +130,10 @@ different position stays there. Use the optional enable switch
 | Hysteresis | Cool-down needed before windows close / screens open again | 1 °C |
 | Minimum Temperature Difference | How much cooler it must be outside to open windows | 1 °C |
 | Minimum Outdoor Temperature | Windows stay closed below this | 12 °C |
-| Window Open Position | Position to open windows to (below 100 needs position support) | 100% |
+| Minimum Window Position | Opening just above the minimum outdoor temperature | 20% |
+| Maximum Window Position | Opening at or above the full open outdoor temperature | 100% |
+| Full Open Outdoor Temperature | Outdoor temperature at which windows open to the maximum position | 18 °C |
+| Window Position Tolerance | Minimum change before an open window is moved to a new position | 10% |
 | Screen Attic Temperature | Screens close above this attic temperature when the sun is on them | 22 °C |
 | Screen Outdoor Temperature | Screens also close above this outdoor temperature when the sun is on them | 25 °C |
 | Minimum Sun Elevation | Sun counts as shining above this elevation | 10° |
