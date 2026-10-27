@@ -456,26 +456,32 @@ actions:
           - condition: template
             value_template: "{{ window_action | trim == 'open' }}"
         sequence:
-          # Windows with position support are moved to the calculated position
-          # (also when already open, once it is off by the tolerance); windows
-          # without it are simply opened
+          # Windows that support setting a position (supported_features bit 4)
+          # get the calculated position. Open windows that report their position
+          # follow it once it is off by the tolerance; windows that cannot be
+          # set to a position are simply opened.
           - variables:
               position: "{{ window_position | int }}"
               position_targets: >-
                 {% set ns = namespace(ids=[]) %}
                 {% for window in expand(window_list)
-                   if window.attributes.current_position is defined
-                   and window.state not in ['opening', 'closing']
-                   and (window.state == 'closed'
-                        or (window.attributes.current_position | int(0) - position) | abs
-                           >= window_position_tolerance) %}
-                  {% set ns.ids = ns.ids + [window.entity_id] %}
+                   if (window.attributes.supported_features | int(0) // 4) % 2 == 1
+                   and window.state not in ['opening', 'closing'] %}
+                  {% set current = window.attributes.current_position %}
+                  {% if window.state == 'closed'
+                        or (current is number and (current - position) | abs >= window_position_tolerance) %}
+                    {% set ns.ids = ns.ids + [window.entity_id] %}
+                  {% endif %}
                 {% endfor %}
                 {{ ns.ids }}
               open_targets: >-
-                {{ expand(window_list) | rejectattr('attributes.current_position', 'defined')
-                   | rejectattr('state', 'in', ['open', 'opening'])
-                   | map(attribute='entity_id') | list }}
+                {% set ns = namespace(ids=[]) %}
+                {% for window in expand(window_list)
+                   if (window.attributes.supported_features | int(0) // 4) % 2 == 0
+                   and window.state not in ['open', 'opening'] %}
+                  {% set ns.ids = ns.ids + [window.entity_id] %}
+                {% endfor %}
+                {{ ns.ids }}
           - if:
               - condition: template
                 value_template: "{{ position_targets | count > 0 }}"
